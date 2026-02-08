@@ -1,19 +1,46 @@
 "use client";
 
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect } from "react";
 import ImageCard from "@/components/ImageCard";
 import SkeletonGrid from "@/components/SkeletonGrid";
 import RoundHistory from "@/components/RoundHistory";
+import KeySetup from "@/components/KeySetup";
 import { GeneratedImage, GenerationRound } from "@/lib/types";
+import { ApiKeys, saveKeys, loadKeys, clearKeys } from "@/lib/keystore";
 import { STYLE_VARIANTS } from "@/lib/styles";
 
 export default function Home() {
+  const [apiKeys, setApiKeys] = useState<ApiKeys | null>(null);
+  const [keysLoaded, setKeysLoaded] = useState(false);
   const [prompt, setPrompt] = useState("");
   const [rounds, setRounds] = useState<GenerationRound[]>([]);
   const [viewingRound, setViewingRound] = useState(1);
   const [selectedImageId, setSelectedImageId] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // Try to restore keys from encrypted sessionStorage on mount
+  useEffect(() => {
+    loadKeys().then((keys) => {
+      if (keys) setApiKeys(keys);
+      setKeysLoaded(true);
+    });
+  }, []);
+
+  const handleKeysSubmit = async (keys: ApiKeys) => {
+    await saveKeys(keys);
+    setApiKeys(keys);
+  };
+
+  const handleClearKeys = () => {
+    clearKeys();
+    setApiKeys(null);
+    setRounds([]);
+    setViewingRound(1);
+    setSelectedImageId(null);
+    setPrompt("");
+    setError(null);
+  };
 
   const currentRoundData = rounds.find((r) => r.roundNumber === viewingRound);
   const latestRound = rounds.length > 0 ? rounds[rounds.length - 1].roundNumber : 0;
@@ -25,6 +52,7 @@ export default function Home() {
 
   const generate = useCallback(
     async (selectedStyleId?: string) => {
+      if (!apiKeys) return;
       const roundNumber = latestRound + 1;
       setLoading(true);
       setError(null);
@@ -38,6 +66,7 @@ export default function Home() {
             prompt,
             round: roundNumber,
             selectedStyleId,
+            keys: apiKeys,
           }),
         });
 
@@ -63,7 +92,7 @@ export default function Home() {
         setLoading(false);
       }
     },
-    [prompt, latestRound, selectedImageId]
+    [prompt, latestRound, selectedImageId, apiKeys]
   );
 
   const handleGenerate = () => generate();
@@ -85,6 +114,23 @@ export default function Home() {
     ? STYLE_VARIANTS.find((s) => s.id === selectedImage.styleId)
     : null;
 
+  // Don't flash the key setup while checking sessionStorage
+  if (!keysLoaded) {
+    return (
+      <div className="flex min-h-screen items-center justify-center">
+        <div className="h-8 w-8 animate-spin rounded-full border-2 border-[var(--accent)] border-t-transparent" />
+      </div>
+    );
+  }
+
+  // Show key setup screen if no keys are stored
+  if (!apiKeys) {
+    return <KeySetup onKeysSubmit={handleKeysSubmit} />;
+  }
+
+  // Count active providers
+  const providerCount = [apiKeys.openai, apiKeys.gemini, apiKeys.fal].filter(Boolean).length;
+
   return (
     <main className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
       {/* Header */}
@@ -95,6 +141,26 @@ export default function Home() {
         <p className="mt-3 text-[var(--text-muted)]">
           Generate 5 wildly different images from one prompt. Pick your favorite, refine, repeat.
         </p>
+      </div>
+
+      {/* Keys status bar */}
+      <div className="mx-auto mb-6 flex max-w-2xl items-center justify-between rounded-xl border border-[var(--border)] bg-[var(--bg-card)] px-4 py-2.5">
+        <div className="flex items-center gap-2 text-xs text-[var(--text-muted)]">
+          <svg className="h-3.5 w-3.5 text-emerald-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
+          </svg>
+          <span>
+            {providerCount} provider{providerCount !== 1 ? "s" : ""} active
+          </span>
+          <span className="text-[var(--border)]">|</span>
+          <span>Keys encrypted in session</span>
+        </div>
+        <button
+          onClick={handleClearKeys}
+          className="text-xs text-red-400 transition-colors hover:text-red-300"
+        >
+          Clear keys &amp; logout
+        </button>
       </div>
 
       {/* Prompt input */}

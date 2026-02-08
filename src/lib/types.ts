@@ -25,12 +25,20 @@ export interface GenerationRound {
   images: GeneratedImage[];
 }
 
+export interface ClientKeys {
+  openai?: string;
+  gemini?: string;
+  fal?: string;
+}
+
 export interface GenerateRequest {
   prompt: string;
   /** If refining, which style was selected in the previous round */
   selectedStyleId?: string;
   /** Round number (1-based) */
   round: number;
+  /** API keys sent from the client per-request */
+  keys: ClientKeys;
 }
 
 export interface GenerateResponse {

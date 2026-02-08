@@ -1,12 +1,12 @@
-import { Provider } from "./types";
+import { Provider, ClientKeys } from "./types";
 
 // ---------- OpenAI (DALL-E 3 / GPT Image) ----------
 
-async function generateWithOpenAI(prompt: string): Promise<string> {
+async function generateWithOpenAI(prompt: string, apiKey: string): Promise<string> {
   const res = await fetch("https://api.openai.com/v1/images/generations", {
     method: "POST",
     headers: {
-      Authorization: `Bearer ${process.env.OPENAI_API_KEY}`,
+      Authorization: `Bearer ${apiKey}`,
       "Content-Type": "application/json",
     },
     body: JSON.stringify({
@@ -30,9 +30,8 @@ async function generateWithOpenAI(prompt: string): Promise<string> {
 
 // ---------- Google Gemini (Imagen) ----------
 
-async function generateWithGemini(prompt: string): Promise<string> {
-  const key = process.env.GEMINI_API_KEY;
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/imagen-3.0-generate-002:predict?key=${key}`;
+async function generateWithGemini(prompt: string, apiKey: string): Promise<string> {
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/imagen-3.0-generate-002:predict?key=${apiKey}`;
 
   const res = await fetch(url, {
     method: "POST",
@@ -58,12 +57,11 @@ async function generateWithGemini(prompt: string): Promise<string> {
 
 // ---------- Flux via fal.ai ----------
 
-async function generateWithFal(prompt: string): Promise<string> {
-  // Submit request
+async function generateWithFal(prompt: string, apiKey: string): Promise<string> {
   const submitRes = await fetch("https://queue.fal.run/fal-ai/flux/dev", {
     method: "POST",
     headers: {
-      Authorization: `Key ${process.env.FAL_KEY}`,
+      Authorization: `Key ${apiKey}`,
       "Content-Type": "application/json",
     },
     body: JSON.stringify({
@@ -80,28 +78,25 @@ async function generateWithFal(prompt: string): Promise<string> {
 
   const submitJson = await submitRes.json();
 
-  // If the response already has images, return directly
   if (submitJson.images?.[0]?.url) {
     return submitJson.images[0].url;
   }
 
-  // Otherwise poll the queue
   const requestId = submitJson.request_id;
   const statusUrl = submitJson.status_url || `https://queue.fal.run/fal-ai/flux/dev/requests/${requestId}/status`;
   const resultUrl = submitJson.response_url || `https://queue.fal.run/fal-ai/flux/dev/requests/${requestId}`;
 
-  // Poll for completion (max 60s)
   for (let i = 0; i < 30; i++) {
     await new Promise((r) => setTimeout(r, 2000));
 
     const statusRes = await fetch(statusUrl, {
-      headers: { Authorization: `Key ${process.env.FAL_KEY}` },
+      headers: { Authorization: `Key ${apiKey}` },
     });
     const statusJson = await statusRes.json();
 
     if (statusJson.status === "COMPLETED") {
       const resultRes = await fetch(resultUrl, {
-        headers: { Authorization: `Key ${process.env.FAL_KEY}` },
+        headers: { Authorization: `Key ${apiKey}` },
       });
       const resultJson = await resultRes.json();
       return resultJson.images[0].url;
@@ -117,27 +112,37 @@ async function generateWithFal(prompt: string): Promise<string> {
 
 // ---------- Provider router ----------
 
-/** Returns available providers based on which env vars are set */
-export function getAvailableProviders(): Provider[] {
+/** Returns available providers based on which keys the client sent */
+export function getAvailableProviders(keys: ClientKeys): Provider[] {
   const providers: Provider[] = [];
-  if (process.env.OPENAI_API_KEY) providers.push("openai");
-  if (process.env.GEMINI_API_KEY) providers.push("gemini");
-  if (process.env.FAL_KEY) providers.push("fal");
+  if (keys.openai) providers.push("openai");
+  if (keys.gemini) providers.push("gemini");
+  if (keys.fal) providers.push("fal");
   return providers;
 }
 
-/** Generate a single image with the given provider */
+function getKeyForProvider(provider: Provider, keys: ClientKeys): string {
+  switch (provider) {
+    case "openai": return keys.openai!;
+    case "gemini": return keys.gemini!;
+    case "fal":    return keys.fal!;
+  }
+}
+
+/** Generate a single image with the given provider using client-supplied keys */
 export async function generateImage(
   provider: Provider,
-  prompt: string
+  prompt: string,
+  keys: ClientKeys
 ): Promise<string> {
+  const apiKey = getKeyForProvider(provider, keys);
   switch (provider) {
     case "openai":
-      return generateWithOpenAI(prompt);
+      return generateWithOpenAI(prompt, apiKey);
     case "gemini":
-      return generateWithGemini(prompt);
+      return generateWithGemini(prompt, apiKey);
     case "fal":
-      return generateWithFal(prompt);
+      return generateWithFal(prompt, apiKey);
     default:
       throw new Error(`Unknown provider: ${provider}`);
   }

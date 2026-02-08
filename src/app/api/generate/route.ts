@@ -3,12 +3,12 @@ import { STYLE_VARIANTS, buildPromptForVariant } from "@/lib/styles";
 import { generateImage, getAvailableProviders } from "@/lib/providers";
 import { GeneratedImage, GenerateRequest, GenerateResponse } from "@/lib/types";
 
-export const maxDuration = 120; // allow long generation times
+export const maxDuration = 120;
 
 export async function POST(req: NextRequest) {
   try {
     const body: GenerateRequest = await req.json();
-    const { prompt, selectedStyleId, round } = body;
+    const { prompt, selectedStyleId, round, keys } = body;
 
     if (!prompt?.trim()) {
       return NextResponse.json(
@@ -17,21 +17,18 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const providers = getAvailableProviders();
-    if (providers.length === 0) {
+    if (!keys || (!keys.openai && !keys.gemini && !keys.fal)) {
       return NextResponse.json(
-        {
-          error:
-            "No API keys configured. Set at least one of: OPENAI_API_KEY, GEMINI_API_KEY, FAL_KEY",
-        },
-        { status: 500 }
+        { error: "No API keys provided. Please add at least one API key." },
+        { status: 400 }
       );
     }
+
+    const providers = getAvailableProviders(keys);
 
     // Generate 5 images in parallel — one per style variant
     const results = await Promise.allSettled(
       STYLE_VARIANTS.map(async (variant, idx) => {
-        // Cycle through available providers
         const provider = providers[idx % providers.length];
         const fullPrompt = buildPromptForVariant(
           variant,
@@ -40,7 +37,7 @@ export async function POST(req: NextRequest) {
           selectedStyleId
         );
 
-        const url = await generateImage(provider, fullPrompt);
+        const url = await generateImage(provider, fullPrompt, keys);
 
         const img: GeneratedImage = {
           id: `${round}-${variant.id}-${Date.now()}`,
